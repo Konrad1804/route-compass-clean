@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, MapPin, Calendar, Edit2, Check, X, Wand2 } from 'lucide-react';
+import { GripVertical, MapPin, Calendar, Edit2, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -162,40 +162,28 @@ export default function RoutePage() {
     const oldIndex = items.findIndex((i) => i.id === active.id);
     const newIndex = items.findIndex((i) => i.id === over.id);
     const newItems = arrayMove(items, oldIndex, newIndex);
-    
+
     const beforeOrder = items.map(i => ({ id: i.id, order: i.order_index }));
-    setItems(newItems);
 
-    // Update all order indices
-    for (let i = 0; i < newItems.length; i++) {
-      await supabase.from('route_items').update({ order_index: i + 1 }).eq('id', newItems[i].id);
-    }
+    // Optimistically update UI with new order and updated local order_index
+    const updatedLocal = newItems.map((it, idx) => ({ ...it, order_index: idx + 1 }));
+    setItems(updatedLocal);
 
-    const afterOrder = newItems.map((i, idx) => ({ id: i.id, order: idx + 1 }));
+    // Parallelize DB updates to avoid long sequential waits that can cause UI stomping
+    const updatePromises = updatedLocal.map((it, idx) =>
+      supabase.from('route_items').update({ order_index: idx + 1 }).eq('id', it.id)
+    );
+
+    await Promise.all(updatePromises);
+
+    const afterOrder = updatedLocal.map((i) => ({ id: i.id, order: i.order_index }));
     await writeLog('reorder', 'route_item', active.id as string, { order: beforeOrder }, { order: afterOrder });
-    fetchItems();
+
+    // No immediate re-fetch to avoid overwriting the optimistic UI; only re-fetch on next mount or explicit refresh
     toast.success('Route aktualisiert');
   };
 
-  const handleAutoRoute = async () => {
-    // Sort by latitude (North to South)
-    const sorted = [...items].sort((a, b) => {
-      const latA = (a.place as any)?.latitude || 0;
-      const latB = (b.place as any)?.latitude || 0;
-      return latB - latA;
-    });
-
-    const beforeOrder = items.map(i => ({ id: i.id, order: i.order_index }));
-
-    for (let i = 0; i < sorted.length; i++) {
-      await supabase.from('route_items').update({ order_index: i + 1 }).eq('id', sorted[i].id);
-    }
-
-    const afterOrder = sorted.map((i, idx) => ({ id: i.id, order: idx + 1 }));
-    await writeLog('reorder', 'route_item', 'auto-route', { order: beforeOrder }, { order: afterOrder });
-    fetchItems();
-    toast.success('Route sortiert: Nord → Süd');
-  };
+  // Auto-route removed: manual ordering via drag & drop remains
 
   return (
     <AppLayout>
@@ -205,9 +193,6 @@ export default function RoutePage() {
             <h1 className="font-display text-3xl font-bold">Route</h1>
             <p className="text-muted-foreground">Drag & Drop zum Sortieren</p>
           </div>
-          <Button onClick={handleAutoRoute} variant="outline" className="gap-2">
-            <Wand2 className="w-4 h-4" />Auto-Route Nord→Süd
-          </Button>
         </div>
 
         {loading ? (
