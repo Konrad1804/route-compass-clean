@@ -5,16 +5,17 @@ import { Badge } from '@/components/ui/badge';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
+import type { Json } from '@/integrations/supabase/types';
 
 interface AuditLog {
   id: string;
   action_type: string;
   entity_type: string;
   entity_id: string;
-  actor_id?: string;
+  actor_id?: string | null;
   created_at: string;
-  before_json?: Record<string, unknown>;
-  after_json?: Record<string, unknown>;
+  before_json?: Json;
+  after_json?: Json;
   actor?: { name: string };
 }
 
