@@ -19,7 +19,7 @@ const App = () => (
       <UserProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter basename="/route-compass-clean">
           <Routes>
             <Route path="/" element={<UserPicker />} />
             <Route path="/route" element={<RoutePage />} />
