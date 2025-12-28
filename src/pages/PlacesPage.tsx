@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MapPin, Plus, ThumbsUp, ThumbsDown, ExternalLink } from 'lucide-react';
+import { MapPin, Plus, ThumbsUp, ThumbsDown, ExternalLink, Trash2, Edit2, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { supabase } from '@/integrations/supabase/client';
 import { useUser } from '@/contexts/UserContext';
@@ -43,6 +44,14 @@ export default function PlacesPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ title: '', description: '', category: 'activity', link: '', cost_estimate: '' });
+  const [editingPlaceId, setEditingPlaceId] = useState<string | null>(null);
+  const [editPlaceName, setEditPlaceName] = useState('');
+  const [editPlaceRegion, setEditPlaceRegion] = useState('');
+  const [showNewPlaceForm, setShowNewPlaceForm] = useState(false);
+  const [newPlaceName, setNewPlaceName] = useState('');
+  const [newPlaceRegion, setNewPlaceRegion] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteConfirmType, setDeleteConfirmType] = useState<'place' | 'suggestion' | null>(null);
   const { currentUser } = useUser();
   const { writeLog } = useAuditLog();
 
@@ -59,6 +68,65 @@ export default function PlacesPage() {
     setPlaces(data || []);
     if (data?.length) setSelectedPlace(data[0]);
     setLoading(false);
+  };
+
+  const handleAddPlace = async () => {
+    if (!newPlaceName.trim()) {
+      toast.error('Ortsname ist erforderlich');
+      return;
+    }
+
+    const { data, error } = await supabase.from('places').insert({
+      name: newPlaceName.trim(),
+      region: newPlaceRegion.trim() || null,
+      created_by: currentUser?.id,
+    }).select().single();
+
+    if (error) {
+      toast.error('Fehler beim Erstellen');
+      return;
+    }
+
+    await writeLog('create', 'place', data.id, null, data);
+    setNewPlaceName('');
+    setNewPlaceRegion('');
+    setShowNewPlaceForm(false);
+    fetchPlaces();
+    toast.success('Ort hinzugefügt');
+  };
+
+  const handleDeletePlace = async (id: string) => {
+    const { error } = await supabase.from('places').delete().eq('id', id);
+
+    if (error) {
+      toast.error('Fehler beim Löschen');
+      return;
+    }
+
+    await writeLog('delete', 'place', id, null, null);
+    setDeleteConfirmId(null);
+    setDeleteConfirmType(null);
+    fetchPlaces();
+    setSelectedPlace(null);
+    toast.success('Ort gelöscht');
+  };
+
+  const handleEditPlace = async (id: string) => {
+    const { error } = await supabase.from('places').update({
+      name: editPlaceName.trim(),
+      region: editPlaceRegion.trim() || null,
+    }).eq('id', id);
+
+    if (error) {
+      toast.error('Fehler beim Speichern');
+      return;
+    }
+
+    const before = places.find(p => p.id === id);
+    await writeLog('update', 'place', id, before, { name: editPlaceName, region: editPlaceRegion });
+    setEditingPlaceId(null);
+    fetchPlaces();
+    toast.success('Ort aktualisiert');
   };
 
   const fetchSuggestions = async (placeId: string) => {
@@ -109,6 +177,21 @@ export default function PlacesPage() {
     toast.success('Vorschlag hinzugefügt');
   };
 
+  const handleDeleteSuggestion = async (id: string) => {
+    const { error } = await supabase.from('suggestions').delete().eq('id', id);
+
+    if (error) {
+      toast.error('Fehler beim Löschen');
+      return;
+    }
+
+    await writeLog('delete', 'suggestion', id, null, null);
+    setDeleteConfirmId(null);
+    setDeleteConfirmType(null);
+    if (selectedPlace) fetchSuggestions(selectedPlace.id);
+    toast.success('Vorschlag gelöscht');
+  };
+
   const handleVote = async (suggestion: Suggestion, value: number) => {
     if (!currentUser) {
       toast.error('Bitte wähle zuerst einen Benutzer');
@@ -154,7 +237,103 @@ export default function PlacesPage() {
           <h1 className="font-display text-3xl font-bold">Orte & Vorschläge</h1>
         </div>
 
-        {/* Place selector */}
+        {/* Places management section */}
+        <div className="mb-6 p-4 bg-muted rounded-lg">
+          <h2 className="text-lg font-semibold mb-3">Orte verwalten</h2>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {places.map((place) => (
+              <div key={place.id} className={cn(
+                "inline-flex items-center gap-2 px-3 py-2 rounded-md border-2 transition-all",
+                editingPlaceId === place.id ? "border-primary bg-primary/10" : "border-transparent bg-background"
+              )}>
+                {editingPlaceId === place.id ? (
+                  <>
+                    <div className="flex gap-2">
+                      <Input
+                        value={editPlaceName}
+                        onChange={(e) => setEditPlaceName(e.target.value)}
+                        placeholder="Name"
+                        className="h-8 w-32"
+                        autoFocus
+                      />
+                      <Input
+                        value={editPlaceRegion}
+                        onChange={(e) => setEditPlaceRegion(e.target.value)}
+                        placeholder="Region"
+                        className="h-8 w-32"
+                      />
+                      <Button size="sm" variant="ghost" onClick={() => handleEditPlace(place.id)}><Check className="w-4 h-4" /></Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingPlaceId(null)}><X className="w-4 h-4" /></Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <MapPin className="w-4 h-4 text-muted-foreground" />
+                    <div>
+                      <span className="font-medium">{place.name}</span>
+                      {place.region && <span className="text-sm text-muted-foreground ml-1">({place.region})</span>}
+                    </div>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => {
+                      setEditingPlaceId(place.id);
+                      setEditPlaceName(place.name);
+                      setEditPlaceRegion(place.region || '');
+                    }}><Edit2 className="w-3 h-3" /></Button>
+                    <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => {
+                      setDeleteConfirmId(place.id);
+                      setDeleteConfirmType('place');
+                    }}><Trash2 className="w-3 h-3" /></Button>
+                  </>
+                )}
+              </div>
+            ))}
+            {showNewPlaceForm ? (
+              <div className="inline-flex items-center gap-2">
+                <Input
+                  value={newPlaceName}
+                  onChange={(e) => setNewPlaceName(e.target.value)}
+                  placeholder="Ortsname *"
+                  className="h-8 w-32"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddPlace();
+                    if (e.key === 'Escape') {
+                      setShowNewPlaceForm(false);
+                      setNewPlaceName('');
+                      setNewPlaceRegion('');
+                    }
+                  }}
+                />
+                <Input
+                  value={newPlaceRegion}
+                  onChange={(e) => setNewPlaceRegion(e.target.value)}
+                  placeholder="Region"
+                  className="h-8 w-32"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddPlace();
+                    if (e.key === 'Escape') {
+                      setShowNewPlaceForm(false);
+                      setNewPlaceName('');
+                      setNewPlaceRegion('');
+                    }
+                  }}
+                />
+                <Button size="sm" onClick={handleAddPlace}><Check className="w-4 h-4 mr-1" />Erstellen</Button>
+                <Button size="sm" variant="outline" onClick={() => {
+                  setShowNewPlaceForm(false);
+                  setNewPlaceName('');
+                  setNewPlaceRegion('');
+                }}>Abbrechen</Button>
+              </div>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => setShowNewPlaceForm(true)} className="gap-2">
+                <Plus className="w-4 h-4" />
+                Neuer Ort
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Place selector for suggestions */}
         <div className="flex flex-wrap gap-2 mb-6">
           {places.map((place) => (
             <Button
@@ -210,11 +389,17 @@ export default function PlacesPage() {
               </TabsList>
 
               <TabsContent value="top" className="space-y-3">
-                {sortedByScore.map((s) => <SuggestionCard key={s.id} suggestion={s} onVote={handleVote} colors={categoryColors} currentUserId={currentUser?.id} />)}
+                {sortedByScore.map((s) => <SuggestionCard key={s.id} suggestion={s} onVote={handleVote} colors={categoryColors} currentUserId={currentUser?.id} onDelete={(id) => {
+                  setDeleteConfirmId(id);
+                  setDeleteConfirmType('suggestion');
+                }} />)}
               </TabsContent>
 
               <TabsContent value="new" className="space-y-3">
-                {sortedByNew.map((s) => <SuggestionCard key={s.id} suggestion={s} onVote={handleVote} colors={categoryColors} currentUserId={currentUser?.id} />)}
+                {sortedByNew.map((s) => <SuggestionCard key={s.id} suggestion={s} onVote={handleVote} colors={categoryColors} currentUserId={currentUser?.id} onDelete={(id) => {
+                  setDeleteConfirmId(id);
+                  setDeleteConfirmType('suggestion');
+                }} />)}
               </TabsContent>
             </Tabs>
 
@@ -223,12 +408,38 @@ export default function PlacesPage() {
             )}
           </>
         )}
+
+        {/* Delete confirmation dialog */}
+        <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => { if (!open) { setDeleteConfirmId(null); setDeleteConfirmType(null); } }}>
+          <AlertDialogContent>
+            <AlertDialogTitle>Löschen bestätigen</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteConfirmType === 'place' && 'Dieser Ort und alle zugehörigen Vorschläge werden gelöscht. Dies kann nicht rückgängig gemacht werden.'}
+              {deleteConfirmType === 'suggestion' && 'Dieser Vorschlag wird gelöscht. Dies kann nicht rückgängig gemacht werden.'}
+            </AlertDialogDescription>
+            <div className="flex gap-2 justify-end mt-4">
+              <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  if (deleteConfirmId && deleteConfirmType === 'place') {
+                    handleDeletePlace(deleteConfirmId);
+                  } else if (deleteConfirmId && deleteConfirmType === 'suggestion') {
+                    handleDeleteSuggestion(deleteConfirmId);
+                  }
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Löschen
+              </AlertDialogAction>
+            </div>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppLayout>
   );
 }
 
-function SuggestionCard({ suggestion, onVote, colors, currentUserId }: { suggestion: Suggestion; onVote: (s: Suggestion, v: number) => void; colors: Record<string, string>; currentUserId?: string }) {
+function SuggestionCard({ suggestion, onVote, colors, currentUserId, onDelete }: { suggestion: Suggestion; onVote: (s: Suggestion, v: number) => void; colors: Record<string, string>; currentUserId?: string; onDelete: (id: string) => void }) {
   const userVote = suggestion.votes?.find(v => v.user_id === currentUserId);
 
   return (
@@ -255,10 +466,6 @@ function SuggestionCard({ suggestion, onVote, colors, currentUserId }: { suggest
               {suggestion.link && <a href={suggestion.link} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-primary"><ExternalLink className="w-3 h-3" />Link</a>}
               <span>von {suggestion.creator?.name || 'Unbekannt'}</span>
               <span>{new Date(suggestion.created_at).toLocaleDateString('de-DE')}</span>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+              <Button size="icon" variant="ghost" className="h-5 w-5 text-destructive hover:text-destructive ml-auto" onClick={() => onDelete(suggestion.id)}><Trash2 className="w-3 h-3" /></Button>
   );
 }

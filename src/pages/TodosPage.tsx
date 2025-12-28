@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Plus, Check, Undo2, Calendar, User } from 'lucide-react';
+import { Plus, Check, Undo2, Calendar, User, Trash2, Edit2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { supabase } from '@/integrations/supabase/client';
 import { useUser } from '@/contexts/UserContext';
@@ -29,6 +30,9 @@ export default function TodosPage() {
   const [newTitle, setNewTitle] = useState('');
   const [filter, setFilter] = useState<'all' | 'open' | 'done'>('open');
   const [assigneeFilter, setAssigneeFilter] = useState<string>('all');
+  const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
+  const [editTodoTitle, setEditTodoTitle] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const { currentUser, users } = useUser();
   const { writeLog } = useAuditLog();
 
@@ -72,6 +76,36 @@ export default function TodosPage() {
     await supabase.from('todos').update({ assignee_id: assigneeId, updated_by: currentUser?.id }).eq('id', todo.id);
     await writeLog('update', 'todo', todo.id, { assignee_id: todo.assignee_id }, { assignee_id: assigneeId });
     fetchTodos();
+  };
+
+  const handleEditTitle = async (todo: Todo) => {
+    if (!editTodoTitle.trim()) return;
+
+    const { error } = await supabase.from('todos').update({ title: editTodoTitle.trim(), updated_by: currentUser?.id }).eq('id', todo.id);
+
+    if (error) {
+      toast.error('Fehler beim Speichern');
+      return;
+    }
+
+    await writeLog('update', 'todo', todo.id, { title: todo.title }, { title: editTodoTitle });
+    setEditingTodoId(null);
+    fetchTodos();
+    toast.success('Titel aktualisiert');
+  };
+
+  const handleDeleteTodo = async (id: string) => {
+    const { error } = await supabase.from('todos').delete().eq('id', id);
+
+    if (error) {
+      toast.error('Fehler beim Löschen');
+      return;
+    }
+
+    await writeLog('delete', 'todo', id, null, null);
+    setDeleteConfirmId(null);
+    fetchTodos();
+    toast.success('ToDo gelöscht');
   };
 
   const filtered = todos.filter(t => {
@@ -120,25 +154,78 @@ export default function TodosPage() {
                   {todo.status === 'done' ? <Check className="w-4 h-4" /> : <div className="w-4 h-4 rounded-full border-2" />}
                 </Button>
                 <div className="flex-1 min-w-0">
-                  <p className={cn("font-medium", todo.status === 'done' && "line-through")}>{todo.title}</p>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                    {todo.due_date && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(todo.due_date).toLocaleDateString('de-DE')}</span>}
-                    <span>{new Date(todo.created_at).toLocaleDateString('de-DE')}</span>
-                  </div>
+                  {editingTodoId === todo.id ? (
+                    <div className="flex gap-2">
+                      <Input
+                        value={editTodoTitle}
+                        onChange={(e) => setEditTodoTitle(e.target.value)}
+                        className="flex-1"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleEditTitle(todo);
+                          if (e.key === 'Escape') setEditingTodoId(null);
+                        }}
+                      />
+                      <Button size="sm" onClick={() => handleEditTitle(todo)}><Check className="w-4 h-4" /></Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditingTodoId(null)}><X className="w-4 h-4" /></Button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className={cn("font-medium", todo.status === 'done' && "line-through")}>{todo.title}</p>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                        {todo.due_date && <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(todo.due_date).toLocaleDateString('de-DE')}</span>}
+                        <span>{new Date(todo.created_at).toLocaleDateString('de-DE')}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
-                <Select value={todo.assignee_id || 'none'} onValueChange={(v) => updateAssignee(todo, v === 'none' ? null : v)}>
-                  <SelectTrigger className="w-32"><User className="w-4 h-4 mr-2" /><SelectValue placeholder="Zuweisen" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Niemand</SelectItem>
-                    {users.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                {editingTodoId !== todo.id && (
+                  <>
+                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => {
+                      setEditingTodoId(todo.id);
+                      setEditTodoTitle(todo.title);
+                    }}><Edit2 className="w-4 h-4" /></Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteConfirmId(todo.id)}><Trash2 className="w-4 h-4" /></Button>
+                  </>
+                )}
+                {editingTodoId !== todo.id && (
+                  <Select value={todo.assignee_id || 'none'} onValueChange={(v) => updateAssignee(todo, v === 'none' ? null : v)}>
+                    <SelectTrigger className="w-32"><User className="w-4 h-4 mr-2" /><SelectValue placeholder="Zuweisen" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Niemand</SelectItem>
+                      {users.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
               </CardContent>
             </Card>
           ))}
         </div>
 
         {filtered.length === 0 && <div className="text-center py-12 text-muted-foreground">Keine ToDos gefunden</div>}
+
+        {/* Delete confirmation dialog */}
+        <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
+          <AlertDialogContent>
+            <AlertDialogTitle>ToDo löschen</AlertDialogTitle>
+            <AlertDialogDescription>
+              Dieses ToDo wird gelöscht. Dies kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+            <div className="flex gap-2 justify-end mt-4">
+              <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  if (deleteConfirmId) {
+                    handleDeleteTodo(deleteConfirmId);
+                  }
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Löschen
+              </AlertDialogAction>
+            </div>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppLayout>
   );

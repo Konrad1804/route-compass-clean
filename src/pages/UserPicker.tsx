@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Edit2, Check, Plus, MapPin, Plane } from 'lucide-react';
+import { User, Edit2, Check, Plus, MapPin, Plane, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useUser } from '@/contexts/UserContext';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -16,6 +17,7 @@ export default function UserPicker() {
   const [editName, setEditName] = useState('');
   const [showNewUser, setShowNewUser] = useState(false);
   const [newUserName, setNewUserName] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const handleSelectUser = (user: typeof users[0]) => {
     setCurrentUser(user);
@@ -43,6 +45,22 @@ export default function UserPicker() {
     await refreshUsers();
     setEditingUserId(null);
     toast.success('Name aktualisiert');
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    const { error } = await supabase.from('users').delete().eq('id', userId);
+
+    if (error) {
+      toast.error('Fehler beim Löschen');
+      return;
+    }
+
+    setDeleteConfirmId(null);
+    if (currentUser?.id === userId) {
+      setCurrentUser(null);
+    }
+    await refreshUsers();
+    toast.success('Benutzer gelöscht');
   };
 
   const handleCreateUser = async () => {
@@ -141,16 +159,28 @@ export default function UserPicker() {
                       >
                         {user.name}
                       </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEditStart(user);
-                        }}
-                        className="mt-2 text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                        Bearbeiten
-                      </button>
+                      <div className="flex gap-1 mt-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditStart(user);
+                          }}
+                          className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          Bearbeiten
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirmId(user.id);
+                          }}
+                          className="text-xs text-destructive hover:text-destructive flex items-center gap-1 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Löschen
+                        </button>
+                      </div>
                     </>
                   )}
                 </CardContent>
@@ -210,6 +240,29 @@ export default function UserPicker() {
             )}
           </div>
         </div>
+
+        {/* Delete confirmation dialog */}
+        <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
+          <AlertDialogContent>
+            <AlertDialogTitle>Benutzer löschen</AlertDialogTitle>
+            <AlertDialogDescription>
+              Dieser Benutzer wird permanent gelöscht. Dies kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+            <div className="flex gap-2 justify-end mt-4">
+              <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  if (deleteConfirmId) {
+                    handleDeleteUser(deleteConfirmId);
+                  }
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Löschen
+              </AlertDialogAction>
+            </div>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Continue button */}
         {currentUser && (
