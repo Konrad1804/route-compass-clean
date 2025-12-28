@@ -467,5 +467,10 @@ function SuggestionCard({ suggestion, onVote, colors, currentUserId, onDelete }:
               <span>von {suggestion.creator?.name || 'Unbekannt'}</span>
               <span>{new Date(suggestion.created_at).toLocaleDateString('de-DE')}</span>
               <Button size="icon" variant="ghost" className="h-5 w-5 text-destructive hover:text-destructive ml-auto" onClick={() => onDelete(suggestion.id)}><Trash2 className="w-3 h-3" /></Button>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
